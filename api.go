@@ -13,6 +13,7 @@ import (
 	"golang.org/x/net/context"
 	"io/ioutil"
 	"net/http"
+	"strings"
 )
 
 const (
@@ -33,14 +34,8 @@ type SmartThings struct {
 
 func Connect(ctx context.Context, cfg Config) (SmartThings, error) {
 	st := SmartThings{}
-	if cfg.ClientID == "" {
-		return st, errors.New("missing ClientID")
-	}
-	if cfg.Secret == "" {
-		return st, errors.New("missing Secret")
-	}
-	config := NewOAuthConfig(cfg.ClientID, cfg.Secret)
 	tokenFile := fmt.Sprintf("%s_%s.json", tokenFilePrefix, cfg.ClientID)
+	config := NewOAuthConfig(cfg.ClientID, cfg.Secret)
 	token, err := GetToken(tokenFile, config)
 	if err != nil {
 		return st, err
@@ -74,9 +69,14 @@ func (st *SmartThings) Refresh() error {
 			ID: rd.ID,
 			Name: rd.Name,
 			DisplayName: rd.DisplayName,
+			Attributes: make(map[string]float64),
 		}
-		for k := range rd.Attributes {
-			nd.Attributes = append(nd.Attributes, k)
+		for k, v := range rd.Attributes {
+			fv, ok := v.(float64)
+			if !ok {
+				fv = 0
+			}
+			nd.Attributes[k] = fv
 		}
 		err := nd.Refresh()
 		if err != nil {
@@ -91,7 +91,8 @@ func (st *SmartThings) Refresh() error {
 type Device struct {
 	st *SmartThings
 	ID, Name, DisplayName string
-	Attributes, Commands []string
+	Attributes map[string]float64
+	Commands []string
 }
 
 // Refresh the available device commands.
@@ -112,7 +113,7 @@ func (d *Device) Refresh() error {
 	return nil
 }
 
-func (d *Device) Call(cmd string) error {
+func (d *Device) Call(cmd string, args ...float64) error {
 	found := false
 	for _, c := range d.Commands {
 		if cmd == c {
@@ -122,8 +123,18 @@ func (d *Device) Call(cmd string) error {
 	if !found {
 		return fmt.Errorf("unavailable command: %v", cmd)
 	}
-	_, err := issueCommand(d.st.client, d.st.endpoint,
-		fmt.Sprintf("/devices/%s/%s", d.ID, cmd))
+	if len(args) > 1 {
+		return errors.New("too many arguments")
+	}
+	path := fmt.Sprintf("/devices/%s/%s", d.ID, cmd)
+	if len(args) > 0 {
+		var sargs []string
+		for _, a := range args {
+			sargs = append(sargs, fmt.Sprintf("%v", a))
+		}
+		path = fmt.Sprintf("%s/%v", path, strings.Join(sargs, "/"))
+	}
+	_, err := issueCommand(d.st.client, d.st.endpoint, path)
 	return err
 }
 

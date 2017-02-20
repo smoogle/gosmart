@@ -53,7 +53,7 @@ func main() {
 	fmt.Println()
 	fmt.Printf("Turning all devices on...\n")
 	for _, dev := range st.Devices {
-		err := dev.Call("on")
+		err := dev.Call("setLevel", 100)
 		if err != nil {
 			fmt.Printf("[%v] %s: %v\n", dev.ID, dev.Name, err)
 		} else {
