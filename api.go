@@ -8,9 +8,124 @@ package gosmart
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+	"golang.org/x/net/context"
 	"io/ioutil"
 	"net/http"
 )
+
+const (
+	tokenFilePrefix = ".smartthings.token"
+)
+
+// Global configuration for smart things.
+type Config struct {
+	ClientID, Secret string
+}
+
+// Represents all smart things.
+type SmartThings struct {
+	client *http.Client
+	endpoint string
+	Devices []Device
+}
+
+func Connect(ctx context.Context, cfg Config) (SmartThings, error) {
+	st := SmartThings{}
+	if cfg.ClientID == "" {
+		return st, errors.New("missing ClientID")
+	}
+	if cfg.Secret == "" {
+		return st, errors.New("missing Secret")
+	}
+	config := NewOAuthConfig(cfg.ClientID, cfg.Secret)
+	tokenFile := fmt.Sprintf("%s_%s.json", tokenFilePrefix, cfg.ClientID)
+	token, err := GetToken(tokenFile, config)
+	if err != nil {
+		return st, err
+	}
+	st.client = config.Client(ctx, token)
+	st.endpoint, err = GetEndPointsURI(st.client)
+	if err != nil {
+		return st, err
+	}
+	return st, st.Refresh()
+}
+
+// Refresh all the devices that are available.
+func (st *SmartThings) Refresh() error {
+	all, err := GetDevices(st.client, st.endpoint)
+	if err != nil {
+		return err
+	}
+	var raw []*DeviceInfo
+	for _, d := range all {
+		detail, err := GetDeviceInfo(st.client, st.endpoint, d.ID)
+		if err != nil {
+			return err
+		}
+		raw = append(raw, detail)
+	}
+	st.Devices = nil
+	for _, rd := range raw {
+		nd := Device{
+			st: st,
+			ID: rd.ID,
+			Name: rd.Name,
+			DisplayName: rd.DisplayName,
+		}
+		for k := range rd.Attributes {
+			nd.Attributes = append(nd.Attributes, k)
+		}
+		err := nd.Refresh()
+		if err != nil {
+			return err
+		}
+		st.Devices = append(st.Devices, nd)
+	}
+	return nil
+}
+
+// Device is a representation of a Device
+type Device struct {
+	st *SmartThings
+	ID, Name, DisplayName string
+	Attributes, Commands []string
+}
+
+// Refresh the available device commands.
+func (d *Device) Refresh() error {
+	dcs, err := GetDeviceCommands(d.st.client, d.st.endpoint, d.ID)
+	if err != nil {
+		return err
+	}
+	cmds := make(map[string]bool)
+	d.Commands = nil
+	for _, dc := range dcs {
+		if cmds[dc.Command] {
+			continue
+		}
+		d.Commands = append(d.Commands, dc.Command)
+		cmds[dc.Command] = true
+	}
+	return nil
+}
+
+func (d *Device) Call(cmd string) error {
+	found := false
+	for _, c := range d.Commands {
+		if cmd == c {
+			found = true
+		}
+	}
+	if !found {
+		return fmt.Errorf("unavailable command: %v", cmd)
+	}
+	_, err := issueCommand(d.st.client, d.st.endpoint,
+		fmt.Sprintf("/devices/%s/%s", d.ID, cmd))
+	return err
+}
 
 // DeviceList holds the list of devices returned by /devices
 type DeviceList struct {
