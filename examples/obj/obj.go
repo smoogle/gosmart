@@ -31,23 +31,6 @@ func main() {
 		log.Fatalln(err)
 	}
 
-	for _, dev := range st.Devices {
-		fmt.Printf("\nDevice ID:      %s\n", dev.ID)
-		fmt.Printf("  Name:         %s\n", dev.Name)
-		fmt.Printf("  Display Name: %s\n", dev.DisplayName)
-		if len(dev.Attributes) > 0 {
-			fmt.Printf("  Attributes:\n")
-			for k, v := range dev.Attributes {
-				fmt.Printf("    %v: %v\n", k, v)
-			}
-		}
-		if len(dev.Commands) > 0 {
-			fmt.Printf("  Commands:\n")
-			for _, cmd := range dev.Commands {
-				fmt.Printf("    %s\n", cmd)
-			}
-		}
-		fmt.Println()
 	}
 
 	fmt.Println()

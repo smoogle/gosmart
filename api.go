@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"golang.org/x/net/context"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"strings"
 )
@@ -72,11 +73,18 @@ func (st *SmartThings) Refresh() error {
 			Attributes: make(map[string]float64),
 		}
 		for k, v := range rd.Attributes {
-			fv, ok := v.(float64)
-			if !ok {
-				fv = 0
+			switch t := v.(type) {
+			default:
+				log.Printf("unhandled attribute type: %v", t)
+			case float64:
+				nd.Attributes[k] = t
+			case string:
+				if t == "on" || t == "present" {
+					nd.Attributes[k] = 1.0
+				} else {
+					nd.Attributes[k] = 0.0
+				}
 			}
-			nd.Attributes[k] = fv
 		}
 		err := nd.Refresh()
 		if err != nil {
@@ -111,6 +119,15 @@ func (d *Device) Refresh() error {
 		cmds[dc.Command] = true
 	}
 	return nil
+}
+
+func (d *Device) HasCommand(cmd string) bool {
+	for _, c := range d.Commands {
+		if c == cmd {
+			return true
+		}
+	}
+	return false
 }
 
 func (d *Device) Call(cmd string, args ...float64) error {
