@@ -15,6 +15,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 )
 
 const (
@@ -55,38 +56,33 @@ func (st *SmartThings) Refresh() error {
 	if err != nil {
 		return err
 	}
-	var raw []*DeviceInfo
-	for _, d := range all {
-		detail, err := GetDeviceInfo(st.client, st.endpoint, d.ID)
-		if err != nil {
-			return err
-		}
-		raw = append(raw, detail)
-	}
 	st.Devices = nil
-	for _, rd := range raw {
+	for _, rd := range all {
 		nd := Device{
 			st: st,
 			ID: rd.ID,
-			Name: rd.Name,
-			DisplayName: rd.DisplayName,
 			Attributes: make(map[string]float64),
 		}
-		for k, v := range rd.Attributes {
-			switch t := v.(type) {
-			default:
-				log.Printf("unhandled attribute type: %v", t)
-			case float64:
-				nd.Attributes[k] = t
-			case string:
-				if t == "on" || t == "present" {
-					nd.Attributes[k] = 1.0
-				} else {
-					nd.Attributes[k] = 0.0
-				}
-			}
+		detail, err := GetDeviceInfo(st.client, st.endpoint, rd.ID)
+		if err != nil {
+			return err
 		}
-		err := nd.Refresh()
+		nd.Name = detail.Name
+		nd.DisplayName = detail.DisplayName
+		dcs, err := GetDeviceCommands(st.client, st.endpoint, rd.ID)
+		if err != nil {
+			return err
+		}
+		cmds := make(map[string]bool)
+		nd.Commands = nil
+		for _, dc := range dcs {
+			if cmds[dc.Command] {
+				continue
+			}
+			nd.Commands = append(nd.Commands, dc.Command)
+			cmds[dc.Command] = true
+		}
+		err = nd.Refresh()
 		if err != nil {
 			return err
 		}
@@ -99,25 +95,42 @@ func (st *SmartThings) Refresh() error {
 type Device struct {
 	st *SmartThings
 	ID, Name, DisplayName string
-	Attributes map[string]float64
 	Commands []string
+	mu sync.Mutex
+	attributes map[string]float64
+}
+
+// Gets attributes about the device.
+func (d *Device) Attribute(name string) float64 {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.attributes[name]
 }
 
 // Refresh the available device commands.
 func (d *Device) Refresh() error {
-	dcs, err := GetDeviceCommands(d.st.client, d.st.endpoint, d.ID)
+	detail, err := GetDeviceInfo(d.st.client, d.st.endpoint, d.ID)
 	if err != nil {
 		return err
 	}
-	cmds := make(map[string]bool)
-	d.Commands = nil
-	for _, dc := range dcs {
-		if cmds[dc.Command] {
-			continue
+	na = make(map[string]float64)
+	for k, v := range detail.Attributes {
+		switch t := v.(type) {
+		default:
+			log.Printf("unhandled attribute type: %v", t)
+		case float64:
+			na[k] = t
+		case string:
+			if t == "on" || t == "present" {
+				na[k] = 1.0
+			} else {
+				na[k] = 0.0
+			}
 		}
-		d.Commands = append(d.Commands, dc.Command)
-		cmds[dc.Command] = true
 	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.attributes = na
 	return nil
 }
 
