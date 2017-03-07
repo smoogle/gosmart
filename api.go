@@ -61,7 +61,7 @@ func (st *SmartThings) Refresh() error {
 		nd := Device{
 			st: st,
 			ID: rd.ID,
-			Attributes: make(map[string]float64),
+			attributes: make(map[string]float64),
 		}
 		detail, err := GetDeviceInfo(st.client, st.endpoint, rd.ID)
 		if err != nil {
@@ -100,7 +100,18 @@ type Device struct {
 	attributes map[string]float64
 }
 
-// Gets attributes about the device.
+// Attributes gets all attributes.
+func (d *Device) Attributes() map[string]float64 {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	out := make(map[string]float64)
+	for k, v := range d.attributes {
+		out[k] = v
+	}
+	return out
+}
+
+// Attribute gets the value of a single attribute.
 func (d *Device) Attribute(name string) float64 {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -113,7 +124,7 @@ func (d *Device) Refresh() error {
 	if err != nil {
 		return err
 	}
-	na = make(map[string]float64)
+	na := make(map[string]float64)
 	for k, v := range detail.Attributes {
 		switch t := v.(type) {
 		default:
